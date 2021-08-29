@@ -1,0 +1,112 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <dirent.h>
+#include "freq_list.h"
+#include "worker.h"
+
+/* The function get_word should be added to this file */
+
+FreqRecord *get_word(Node *Head,char **filenames,char *word){
+	//stores the pointer to the linked list of index
+	Node *head=Head;
+	// an array for storing the freq records
+	FreqRecord *frequency=malloc((MAXFILES+1)*sizeof(FreqRecord));
+	//checking for malloc failure
+	if(frequency == NULL){
+		perror("malloc failure");
+		exit(EXIT_FAILURE);
+	}
+	int counter1=0;
+	int counter2=0;
+	//checking which node of the linked list contains the word that we are looking for
+	while(head != NULL){
+		if(strcmp(word,head->word)==0){
+			break;
+		}
+		head=head->next;
+	}
+	// head will not be null if the word has been found
+	if(head != NULL){
+		// this while loop condition calculates the size of the frequency array of the node with the word we are looking for
+		while(counter1<(sizeof(head->freq))/sizeof(int))
+		{
+			// checking if frequency of a particular index is not 0 and then adding it to the array along with the filename
+			if(head->freq[counter1]!=0){
+				frequency[counter2].freq=head->freq[counter1];
+				strcpy(frequency[counter2].filename,filenames[counter1]);
+				counter2=counter2+1;
+			}
+			counter1++;
+		}
+	}
+	//making the last element of the array have 0 frequency
+	frequency[counter2].freq=0;
+	strcpy(frequency[counter2].filename,"/0");
+	return frequency;
+}
+
+/* Print to standard output the frequency records for a word.
+* Used for testing.
+*/
+void print_freq_records(FreqRecord *frp) {
+	int i = 0;
+	while(frp != NULL && frp[i].freq != 0) {
+		printf("%d    %s\n", frp[i].freq, frp[i].filename);
+		i++;
+	}
+}
+
+/* run_worker
+* - load the index found in dirname
+* - read a word from the file descriptor "in"
+* - find the word in the index list
+* - write the frequency records to the file descriptor "out"
+*/
+void run_worker(char *dirname, int in, int out){
+	// WILL STORE HEAD OF LINKED LIST OF A PARTICULAR INDEX
+	Node *head=NULL;
+	// a pointer to the the array of filenames
+	char **file_names=init_filenames();
+	char *filename="/filenames";
+	char *listname="/index";
+	//creating complete path for the filenames file so that read_list can look for it in the appropriate location
+	char path1[PATHLENGTH];
+	strcpy(path1,dirname);
+	strcat(path1,filename);
+	//creating complete path for the index file so that read_list can look for it in the appropriate location
+	char path2[PATHLENGTH];
+	strcpy(path2,dirname);
+	strcat(path2,listname);
+	//read_list function will create the linked list of words and the filenames array
+	read_list(path2,path1,&head,file_names);
+	//char variable pointer to store the word after reading it from in
+	char word[MAXWORD];
+	FreqRecord *f=NULL;
+	//stores the integer returned by the read function
+	int read_returns;
+	//read the input
+	while((read_returns=read(in,word,MAXWORD))>0){
+		int counter=0;
+		int last_index=sizeof(word);
+		//adding null character to the end of the word
+		word[last_index] = '\0';
+		//get a pointer to an array of records from the get_word function
+		f=get_word(head,file_names,word);
+		// read each record of an array one at a time and write it to stdout
+		while(f[counter].freq!=0)
+		{
+			write(out,&f[counter],sizeof(FreqRecord));
+			counter=counter+1;		
+		}
+		//writing the record with 0 frequency since while loop will terminate when we reach that record 
+		write(out,&f[counter],sizeof(FreqRecord));
+	}
+	// this is for when read function fails
+	if(read_returns<0)
+	{
+		perror("read failed");
+		exit(EXIT_FAILURE);
+	}
+}

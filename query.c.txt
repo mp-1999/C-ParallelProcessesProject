@@ -1,0 +1,115 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dirent.h>
+#include "freq_list.h"
+#include "worker.h"
+
+
+
+int main(int argc, char **argv) {
+	char ch;
+	char path[PATHLENGTH];
+	char *startdir = ".";
+	//stories for each directory two pipes each and each pipe contains 2 file descriptors
+	int total_pipes[MAXFILES][2][2];
+	FreqRecord *master_frp = malloc((MAXRECORDS+1)*sizeof(FreqRecord));
+	if(master_frp ==NULL){
+	 perror("Malloc failur");
+	 exit(EXIT_FAILURE);
+	}
+	while((ch = getopt(argc, argv, "d:")) != -1) {
+		switch (ch) {
+			case 'd':
+			startdir = optarg;
+			break;
+			default:
+			fprintf(stderr, "Usage: queryone [-d DIRECTORY_NAME]\n");
+			exit(1);
+		}
+	}
+	// Open the directory provided by the user (or current working directory)
+	
+	DIR *dirp;
+	if((dirp = opendir(startdir)) == NULL) {
+		perror("opendir");
+		exit(1);
+	} 
+	
+	/* For each entry in the directory, eliminate . and .., and check
+	* to make sure that the entry is a directory, then call run_worker
+	* to process the index file contained in the directory.
+ 	* Note that this implementation of the query engine iterates
+	* sequentially through the directories, and will expect to read
+	* a word from standard input for each index it checks.
+	*/
+	// counter for calculating the number of subdirectories in the current directory
+	int number_of_directories=0;	
+	struct dirent *dp;
+	pid_t pid;
+	int nbytes=0;
+	char *input=malloc(MAXWORD);
+	if(input==NULL){
+		perror("malloc fail");
+		exit(1);
+	}
+	// this while loop runs as long as words are being read from the keyboard
+	while((nbytes = read(STDIN_FILENO, input, MAXWORD)) > 0){
+		while((dp = readdir(dirp)) != NULL) {
+
+		if(strcmp(dp->d_name, ".") == 0 || 
+		   strcmp(dp->d_name, "..") == 0 ||
+		   strcmp(dp->d_name, ".svn") == 0){
+			continue;
+		}
+		//for checking of the directory path
+		strncpy(path, startdir, PATHLENGTH);
+		strncat(path, "/", PATHLENGTH - strlen(path) - 1);
+		strncat(path, dp->d_name, PATHLENGTH - strlen(path) - 1);
+		char *indexfile = "/index";
+		char *filenamefile="/filenames";
+		char listfile[strlen(path) + (strlen(indexfile ) + 1)];
+		char namefile[strlen(path) + (strlen(filenamefile) + 1)];
+		struct stat sbuf;
+		// created struct for checking if index file exists in directory
+		struct stat check_index;
+		//created struct for checking if filename file exists in directory
+		struct stat check_filename;
+		if(stat(path, &sbuf) == -1) {
+			//This should only fail if we got the path wrong
+			// or we don't have permissions on this entry.
+			perror("stat");
+			exit(1);
+		} 
+
+		// Only call run_worker if it is a directory
+		// Otherwise ignore it.
+		if(S_ISDIR(sbuf.st_mode) ) {
+			if((stat(listfile,&check_index)==0) && (stat(namefile,&check_filename)==0)){
+			pipe(total_pipes[number_of_directories][0]);
+	        	pipe(total_pipes[number_of_directories][1]);
+			if((pid = fork()) < 0){
+				perror("fork");
+				exit(1);
+			}
+			//we are in the child process if this turns out to be true
+			else if(pid==0){
+				close(total_pipes[number_of_directories][0][1]); 
+				close(total_pipes[number_of_directories][1][0]);
+				//run_worker(path,total_pipes[0][0],total_pipes[1][1]);
+				return 0;
+				
+		}
+		number_of_directories++;
+		}
+	}
+
+	}
+	
+	
+	return 0;
+}
+}
